@@ -1,24 +1,27 @@
 # The Hive Cup
 
-Mobile tournament fixtures, results, bracket, and shared match timer.
+Mobile tournament fixtures, results, bracket, and admin match timer.
 
-## Local development
+## Run locally
 
-Run `npm install`, add `ADMIN_PASSWORD=your-password` to a root `.env` file, then run `npm run dev`. Vite serves the app at `http://localhost:5173`; the local Node API runs on port 3001. The public app is `/`, the read-only clock is `/timer`, and admin sign-in is `/admin` (including `/admin/timer`). Local results are saved in `results.json` and the clock in `timer.json`.
+Run `npm install` and `npm run dev` for the interface. API routes require Vercel Functions and a connected Blob store; use `vercel dev` with the project environment variables for full local testing. The public view is `/`, and `/admin` contains score controls and the local timer. `/timer` redirects to `/admin/timer` on Vercel.
 
-Run `npm run build` to create `dist/`. Run `npm test` to check the Vercel API flow.
+`npm run build` creates `dist/`, `npm run preview` serves that build locally, and `npm test` runs the tournament tests.
 
-## Vercel deployment
+## Vercel
 
-Use the **Vite** framework preset and `dist` output directory. `vercel.json` rewrites `/admin`, `/admin/timer`, and `/timer` to the Vite app, while files under `api/` run as Vercel Functions.
+The existing Vercel deployment hosts both the Vite app and the `/api/*` functions. No separate server is needed:
 
-Add these environment variables in the Vercel project for every environment you deploy:
+1. In the Vercel project, open **Storage → Create Database → Blob**. Choose a **private** store and connect it to this project. Vercel supplies `BLOB_READ_WRITE_TOKEN` automatically.
+2. In **Settings → Environment Variables**, add `ADMIN_PASSWORD` for Production (and Preview if needed). Use a strong shared password.
+3. Redeploy the latest commit so the functions receive both settings.
+4. Sign in at `/admin` and record a test result. Check `/` on another phone. Scores refresh every 10 seconds and when the page regains focus.
 
-- `ADMIN_PASSWORD`: the shared admin sign-in password.
-- `UPSTASH_REDIS_REST_URL`: the HTTPS REST endpoint of an Upstash Redis database.
-- `UPSTASH_REDIS_REST_TOKEN`: its standard REST token (not the read-only token).
+Use the Vite preset and `dist` output directory. The Blob Hobby free allowance has usage limits.
 
-The API also accepts `KV_REST_API_URL` and `KV_REST_API_TOKEN` if an existing Vercel Redis integration provides those names. Keep all credentials server-side; do not prefix them with `VITE_`. Redeploy after adding or changing environment variables. The deployed app stores shared results, sessions, and timer state in Redis. Local `results.json` and `timer.json` are not uploaded automatically.
+## Data and access
+
+Results and semi-final pairings live in one private Vercel Blob and are shared across devices. A Vercel Function checks the password and issues an HTTP-only admin cookie. The match timer remains in the admin browser's local storage and is not shared across devices. Clearing that browser's data resets its timer but does not erase scores.
 
 ## Source of tournament facts
 

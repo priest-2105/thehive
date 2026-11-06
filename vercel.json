@@ -1,8 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    { "source": "/timer", "destination": "/admin/timer", "permanent": false }
+  ],
   "rewrites": [
     { "source": "/admin", "destination": "/index.html" },
-    { "source": "/admin/:path*", "destination": "/index.html" },
-    { "source": "/timer", "destination": "/index.html" }
+    { "source": "/admin/:path*", "destination": "/index.html" }
   ]
 }

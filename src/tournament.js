@@ -30,6 +30,17 @@ export function winnerOf(match, results) {
   return result.penaltyWinner === 'home' ? match.home : result.penaltyWinner === 'away' ? match.away : null;
 }
 
+export function teamProgress(teamId, matches, results) {
+  const played = matches.filter(match => results[match.id] && (match.home === teamId || match.away === teamId));
+  const loss = played.find(match => winnerOf(match, results) !== teamId);
+  if (loss) return { kind: loss.round === 'final' ? 'runner-up' : 'eliminated', round: loss.round, opponentId: loss.home === teamId ? loss.away : loss.home };
+  if (played.some(match => match.round === 'final')) return { kind: 'champion', round: 'final', opponentId: null };
+  const next = matches.find(match => !results[match.id] && (match.home === teamId || match.away === teamId));
+  if (next) return { kind: next.home && next.away ? 'upcoming' : 'pending', round: next.round, opponentId: next.home === teamId ? next.away : next.home };
+  const last = played.at(-1);
+  return { kind: 'pending', round: last?.round === 'semi' ? 'final' : 'semi', opponentId: null };
+}
+
 export function deriveTournament(inputResults) {
   const results = { ...inputResults };
   const built = {};

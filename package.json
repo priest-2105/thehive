@@ -4,17 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"node server.mjs\" \"vite\"",
+    "dev": "vite",
     "build": "vite build",
-    "test": "node --test tests/vercel-api.test.js",
-    "start": "node server.mjs"
+    "test": "node --test",
+    "preview": "vite preview"
   },
   "dependencies": {
+    "@vercel/blob": "2.8.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "concurrently": "^9.2.0",
     "vite": "^7.1.0"
   }
 }
