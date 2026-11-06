@@ -63,9 +63,13 @@ function MatchRow({ match, results, action, compact = false }) {
 
 function FixturesScreen({ matches, results }) {
   const next = matches.find(match => match.home && match.away && results[match.id]?.status === 'live') || matches.find(match => match.home && match.away && !results[match.id]);
+  const rounds = ['quarter', 'semi', 'final'];
+  const currentRound = next?.round || matches.find(match => !isFinal(results[match.id]))?.round || 'final';
+  const currentIndex = rounds.indexOf(currentRound);
+  const roundOrder = [...rounds.slice(currentIndex), ...rounds.slice(0, currentIndex).reverse()];
   return <div className="screen-content"><div className="screen-title"><h1>Fixtures</h1><p>Friday, 6 November · Kickoff 4:30 PM</p></div>
     {next && <section className="next-fixture" aria-label={results[next.id]?.status === 'live' ? 'Live matchup' : 'Next matchup'}><div className="next-fixture-head"><span>{results[next.id]?.status === 'live' ? 'LIVE NOW' : 'UP NEXT'}</span><span>{roundNames[next.round]} {next.number}</span></div><div className="next-fixture-teams"><div><TeamMark team={teamById[next.home]} large /><strong>{teamById[next.home].short}</strong></div><span>{results[next.id]?.status === 'live' ? `${results[next.id].home} : ${results[next.id].away}` : 'VS'}</span><div><TeamMark team={teamById[next.away]} large /><strong>{teamById[next.away].short}</strong></div></div></section>}
-    {['quarter', 'semi', 'final'].map(round => <section className="fixture-group" key={round}><RoundHeading round={round} count={matches.filter(match => match.round === round).length} /><div className="row-stack">{matches.filter(match => match.round === round).map(match => <MatchRow key={match.id} match={match} results={results} />)}</div></section>)}
+    {roundOrder.map(round => <section className="fixture-group" key={round}><RoundHeading round={round} count={matches.filter(match => match.round === round).length} /><div className="row-stack">{matches.filter(match => match.round === round).map(match => <MatchRow key={match.id} match={match} results={results} />)}</div></section>)}
     <RulesSummary />
   </div>;
 }
