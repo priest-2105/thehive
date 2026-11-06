@@ -21,17 +21,21 @@ export const matchDefs = [
 ];
 export const roundNames = { quarter: 'Quarter-final', semi: 'Semi-final', final: 'Final' };
 
+export function isFinal(result) { return Boolean(result && result.status !== 'live'); }
+
 export function winnerOf(match, results) {
   if (!match) return null;
   const result = results[match.id];
-  if (!result || !match.home || !match.away) return null;
+  if (!isFinal(result) || !match.home || !match.away) return null;
   if (result.home > result.away) return match.home;
   if (result.away > result.home) return match.away;
   return result.penaltyWinner === 'home' ? match.home : result.penaltyWinner === 'away' ? match.away : null;
 }
 
 export function teamProgress(teamId, matches, results) {
-  const played = matches.filter(match => results[match.id] && (match.home === teamId || match.away === teamId));
+  const live = matches.find(match => results[match.id]?.status === 'live' && (match.home === teamId || match.away === teamId));
+  if (live) return { kind: 'live', round: live.round, opponentId: live.home === teamId ? live.away : live.home };
+  const played = matches.filter(match => isFinal(results[match.id]) && (match.home === teamId || match.away === teamId));
   const loss = played.find(match => winnerOf(match, results) !== teamId);
   if (loss) return { kind: loss.round === 'final' ? 'runner-up' : 'eliminated', round: loss.round, opponentId: loss.home === teamId ? loss.away : loss.home };
   if (played.some(match => match.round === 'final')) return { kind: 'champion', round: 'final', opponentId: null };

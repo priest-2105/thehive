@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { deriveTournament, roundNames, teamById, teamProgress, teams, winnerOf } from './tournament.js';
+import { deriveTournament, isFinal, roundNames, teamById, teamProgress, teams, winnerOf } from './tournament.js';
 import { changeTimer, freshTimer, phaseDuration, phaseLabel, timerSnapshot } from './timer.js';
 import { readTimer, saveTimer, storageKeys } from './local-state.js';
 
@@ -46,10 +46,10 @@ function MatchRow({ match, results, action, compact = false }) {
   const home = teamById[match.home], away = teamById[match.away];
   const ready = Boolean(home && away);
   return <article className={`match-row ${compact ? 'match-row-compact' : ''}`}>
-    <div className="match-row-top"><span>{roundNames[match.round]} · {String(match.number).padStart(2, '0')}</span><span className={`match-state ${result ? 'is-final' : ready ? 'is-ready' : ''}`}>{result ? 'FULL TIME' : ready ? 'UPCOMING' : 'TBD'}</span></div>
+    <div className="match-row-top"><span>{roundNames[match.round]} · {String(match.number).padStart(2, '0')}</span><span className={`match-state ${isFinal(result) ? 'is-final' : result ? 'is-live' : ready ? 'is-ready' : ''}`}>{isFinal(result) ? 'FULL TIME' : result ? 'LIVE' : ready ? 'UPCOMING' : 'TBD'}</span></div>
     <div className="match-row-main">
       <div className={`match-side ${winner === match.home && winner ? 'is-winner' : ''}`}>{home && <TeamMark team={home} />}<span>{home?.short || 'Winner TBD'}</span></div>
-      <div className="match-result">{result ? <><strong>{result.home} – {result.away}</strong>{result.home === result.away && <small>PEN</small>}</> : <span>vs</span>}</div>
+      <div className="match-result">{result ? <><strong>{result.home} – {result.away}</strong>{isFinal(result) && result.home === result.away && <small>PEN</small>}</> : <span>vs</span>}</div>
       <div className={`match-side away ${winner === match.away && winner ? 'is-winner' : ''}`}><span>{away?.short || 'Winner TBD'}</span>{away && <TeamMark team={away} />}</div>
     </div>
     {action && <div className="match-row-action">{action}</div>}
@@ -57,9 +57,9 @@ function MatchRow({ match, results, action, compact = false }) {
 }
 
 function FixturesScreen({ matches, results }) {
-  const next = matches.find(match => match.home && match.away && !results[match.id]);
+  const next = matches.find(match => match.home && match.away && results[match.id]?.status === 'live') || matches.find(match => match.home && match.away && !results[match.id]);
   return <div className="screen-content"><div className="screen-title"><h1>Fixtures</h1><p>Friday, 6 November · Kickoff 4:30 PM</p></div>
-    {next && <section className="next-fixture" aria-label="Next matchup"><div className="next-fixture-head"><span>UP NEXT</span><span>{roundNames[next.round]} {next.number}</span></div><div className="next-fixture-teams"><div><TeamMark team={teamById[next.home]} large /><strong>{teamById[next.home].short}</strong></div><span>VS</span><div><TeamMark team={teamById[next.away]} large /><strong>{teamById[next.away].short}</strong></div></div></section>}
+    {next && <section className="next-fixture" aria-label={results[next.id]?.status === 'live' ? 'Live matchup' : 'Next matchup'}><div className="next-fixture-head"><span>{results[next.id]?.status === 'live' ? 'LIVE NOW' : 'UP NEXT'}</span><span>{roundNames[next.round]} {next.number}</span></div><div className="next-fixture-teams"><div><TeamMark team={teamById[next.home]} large /><strong>{teamById[next.home].short}</strong></div><span>{results[next.id]?.status === 'live' ? `${results[next.id].home} : ${results[next.id].away}` : 'VS'}</span><div><TeamMark team={teamById[next.away]} large /><strong>{teamById[next.away].short}</strong></div></div></section>}
     {['quarter', 'semi', 'final'].map(round => <section className="fixture-group" key={round}><RoundHeading round={round} count={matches.filter(match => match.round === round).length} /><div className="row-stack">{matches.filter(match => match.round === round).map(match => <MatchRow key={match.id} match={match} results={results} />)}</div></section>)}
     <RulesSummary />
   </div>;
@@ -82,15 +82,16 @@ function TeamsScreen({ onSelect }) {
 
 function TeamDetail({ team, progress, onBack }) {
   const opponent = teamById[progress.opponentId];
-  const label = progress.kind === 'upcoming' ? 'NEXT MATCH' : progress.kind === 'pending' ? 'THROUGH TO NEXT ROUND' : progress.kind === 'champion' ? 'CHAMPIONS' : progress.kind === 'runner-up' ? 'RUNNER-UP' : 'TOURNAMENT ENDED';
-  const heading = progress.kind === 'upcoming' ? `vs ${opponent.short}` : progress.kind === 'pending' ? 'Opponent pending' : progress.kind === 'champion' ? 'The Hive Cup winner' : progress.kind === 'runner-up' ? `Final vs ${opponent.short}` : `Lost to ${opponent.short}`;
+  const label = progress.kind === 'live' ? 'PLAYING NOW' : progress.kind === 'upcoming' ? 'NEXT MATCH' : progress.kind === 'pending' ? 'THROUGH TO NEXT ROUND' : progress.kind === 'champion' ? 'CHAMPIONS' : progress.kind === 'runner-up' ? 'RUNNER-UP' : 'TOURNAMENT ENDED';
+  const heading = ['live', 'upcoming'].includes(progress.kind) ? `vs ${opponent.short}` : progress.kind === 'pending' ? 'Opponent pending' : progress.kind === 'champion' ? 'The Hive Cup winner' : progress.kind === 'runner-up' ? `Final vs ${opponent.short}` : `Lost to ${opponent.short}`;
   const detail = progress.kind === 'pending' ? `${roundNames[progress.round]} matchup to be confirmed` : progress.kind === 'champion' ? 'Won the final' : roundNames[progress.round];
   return <div className="team-detail"><button type="button" className="back-button" onClick={onBack}><Icon name="back" size={20} /> All teams</button><div className="team-detail-head" style={{ '--team-color': team.color }}><TeamMark team={team} large /><span>THE HIVE CUP / TEAM ROSTER</span><h1>{team.name}</h1><p>Captain {team.captain}</p></div><div className="team-detail-body"><div className="detail-section-title"><h2>Squad list</h2><span>05 PLAYERS</span></div><ol>{team.players.map((player, index) => <li key={player}><span>{String(index + 1).padStart(2, '0')}</span><strong>{player}</strong>{player === team.captain && <em>CAPTAIN</em>}</li>)}</ol><div className="team-first-match"><span>{label}</span><strong>{heading}</strong><small>{detail}</small></div></div></div>;
 }
 
 function MatchesScreen({ matches, results }) {
-  const completed = matches.filter(match => results[match.id]);
-  return <div className="screen-content"><div className="screen-title"><h1>Matches</h1><p>{completed.length} of 7 results recorded</p></div>{completed.length ? <div className="row-stack">{completed.slice().reverse().map(match => <MatchRow key={match.id} match={match} results={results} />)}</div> : <div className="empty-state"><div className="empty-icon"><Icon name="matches" size={34} /></div><h2>No results yet</h2><p>Completed matches will appear here as the admin records scores.</p></div>}</div>;
+  const scored = matches.filter(match => results[match.id]);
+  const completed = scored.filter(match => isFinal(results[match.id])).length;
+  return <div className="screen-content"><div className="screen-title"><h1>Matches</h1><p>{completed} of 7 matches complete</p></div>{scored.length ? <div className="row-stack">{scored.slice().reverse().map(match => <MatchRow key={match.id} match={match} results={results} />)}</div> : <div className="empty-state"><div className="empty-icon"><Icon name="matches" size={34} /></div><h2>No scores yet</h2><p>Live scores and completed matches will appear here.</p></div>}</div>;
 }
 
 function BracketCard({ match, results }) {
@@ -127,7 +128,7 @@ function TimerScreen({ timer, matches, results, admin = false, onAction }) {
   const total = phaseDuration(timer.round, timer.phase);
   const minutes = String(Math.floor(Math.ceil(remaining / 1000) / 60)).padStart(2, '0');
   const seconds = String(Math.ceil(remaining / 1000) % 60).padStart(2, '0');
-  const upcoming = matches.filter(item => item.home && item.away && !results[item.id]);
+  const upcoming = matches.filter(item => item.home && item.away && !isFinal(results[item.id]));
   async function act(action, matchId) {
     if (action === 'select' && timer.matchId && timer.matchId !== matchId && status !== 'ready' && !window.confirm('Switch matches and discard the current clock?')) return;
     if (action === 'reset' && !window.confirm('Reset this match to the first half?')) return;
@@ -165,13 +166,14 @@ function ScoreSheet({ match, existing, onClose, onSave }) {
   useEffect(() => { const onKey = event => { if (event.key === 'Escape') onClose(); }; document.addEventListener('keydown', onKey); return () => document.removeEventListener('keydown', onKey); }, [onClose]);
   async function submit(event) {
     event.preventDefault(); const h = Number(home), a = Number(away);
+    const status = event.nativeEvent.submitter?.value === 'final' ? 'final' : 'live';
     if (home === '' || away === '' || !Number.isInteger(h) || !Number.isInteger(a) || h < 0 || a < 0 || h > 99 || a > 99) return setError('Enter a score from 0 to 99 for each team.');
-    if (tied && !penaltyWinner) return setError('Select the team that won on penalties.');
+    if (status === 'final' && tied && !penaltyWinner) return setError('Select the team that won on penalties before marking full time.');
     setBusy(true); setError('');
-    try { await onSave({ matchId: match.id, home: h, away: a, penaltyWinner: tied ? penaltyWinner : null }); onClose(); }
+    try { await onSave({ matchId: match.id, home: h, away: a, status, penaltyWinner: status === 'final' && tied ? penaltyWinner : null }); onClose(); }
     catch (cause) { setError(cause.message); setBusy(false); }
   }
-  return <div className="sheet-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="score-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><div className="sheet-grip" /><div className="sheet-heading"><div><small>{roundNames[match.round].toUpperCase()} · MATCH {String(match.number).padStart(2, '0')}</small><h2 id="sheet-title">{existing ? 'Edit result' : 'Record result'}</h2></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" size={22} /></button></div><form onSubmit={submit}><div className="sheet-scores"><ScoreField label={teamById[match.home].short} value={home} onChange={setHome} /><span className="sheet-vs">:</span><ScoreField label={teamById[match.away].short} value={away} onChange={setAway} /></div>{tied && <fieldset className="penalty-choice"><legend>Who won on penalties?</legend><p className="penalty-hint">Two kicks each, then sudden death if still level.</p>{['home', 'away'].map(side => <label key={side}><input type="radio" name="penaltyWinner" checked={penaltyWinner === side} onChange={() => setPenaltyWinner(side)} /><span>{teamById[match[side]].short}</span></label>)}</fieldset>}{existing && <p className="sheet-note">If this changes the winner, later results involving that team will be cleared.</p>}{error && <p className="form-error" role="alert">{error}</p>}<button type="submit" className="primary-button" disabled={busy}>{busy ? 'Saving…' : 'Save result'}</button></form></section></div>;
+  return <div className="sheet-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="score-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><div className="sheet-grip" /><div className="sheet-heading"><div><small>{roundNames[match.round].toUpperCase()} · MATCH {String(match.number).padStart(2, '0')}</small><h2 id="sheet-title">{isFinal(existing) ? 'Edit final score' : existing ? 'Update live score' : 'Start scoring'}</h2></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" size={22} /></button></div><form onSubmit={submit}><div className="sheet-scores"><ScoreField label={teamById[match.home].short} value={home} onChange={setHome} /><span className="sheet-vs">:</span><ScoreField label={teamById[match.away].short} value={away} onChange={setAway} /></div><p className="sheet-note">Use + for a goal or − to cancel one. Save as many times as needed during play.</p>{tied && <fieldset className="penalty-choice"><legend>Penalty winner, if marking full time</legend><p className="penalty-hint">Two kicks each, then sudden death if still level.</p>{['home', 'away'].map(side => <label key={side}><input type="radio" name="penaltyWinner" checked={penaltyWinner === side} onChange={() => setPenaltyWinner(side)} /><span>{teamById[match[side]].short}</span></label>)}</fieldset>}{isFinal(existing) && <p className="sheet-note">Reopening or changing the winner may clear later results that depend on this match.</p>}{error && <p className="form-error" role="alert">{error}</p>}<div className="score-actions"><button type="submit" value="live" className="secondary-button" disabled={busy}>{isFinal(existing) ? 'Reopen as live' : existing ? 'Update live score' : 'Save live score'}</button><button type="submit" value="final" className="primary-button" disabled={busy}>{busy ? 'Saving…' : isFinal(existing) ? 'Save final correction' : 'Mark full time'}</button></div></form></section></div>;
 }
 
 function AdminDraw({ matches, results, onSave }) {
@@ -191,11 +193,11 @@ function AdminDraw({ matches, results, onSave }) {
 }
 
 function AdminQueue({ matches, results, onRecord, onSaveDraw }) {
-  const ready = matches.filter(match => match.home && match.away && !results[match.id]);
+  const ready = matches.filter(match => match.home && match.away && !isFinal(results[match.id]));
   const waiting = matches.filter(match => (!match.home || !match.away) && !results[match.id]);
-  const quarterComplete = ['q1', 'q2', 'q3', 'q4'].every(id => results[id]);
-  return <div className="screen-content"><div className="screen-title"><h1>Match queue</h1><p>{ready.length} ready to record ? {waiting.length} waiting on earlier rounds or draw</p></div>
-    {ready.length ? <div className="row-stack">{ready.map(match => <MatchRow key={match.id} match={match} results={results} action={<button type="button" className="record-button" onClick={() => onRecord(match)}>Record score <Icon name="chevron" size={18} /></button>} />)}</div> : !quarterComplete || results._semiDraw ? <div className="empty-state"><div className="empty-icon"><Icon name="check" size={32} /></div><h2>All caught up</h2><p>New matches will appear after winners advance.</p></div> : null}
+  const quarterComplete = ['q1', 'q2', 'q3', 'q4'].every(id => isFinal(results[id]));
+  return <div className="screen-content"><div className="screen-title"><h1>Match queue</h1><p>{ready.length} available · {waiting.length} waiting on earlier rounds or draw</p></div>
+    {ready.length ? <div className="row-stack">{ready.map(match => <MatchRow key={match.id} match={match} results={results} action={<button type="button" className="record-button" onClick={() => onRecord(match)}>{results[match.id] ? 'Update score' : 'Start scoring'} <Icon name="chevron" size={18} /></button>} />)}</div> : !quarterComplete || results._semiDraw ? <div className="empty-state"><div className="empty-icon"><Icon name="check" size={32} /></div><h2>All caught up</h2><p>New matches will appear after winners advance.</p></div> : null}
     {quarterComplete && <AdminDraw key={results._semiDraw?.join(',') || 'pending'} matches={matches} results={results} onSave={onSaveDraw} />}
     {waiting.length > 0 && <div className="admin-waiting"><Icon name="lock" size={18} /><span>{waiting.length} later {waiting.length === 1 ? 'match' : 'matches'} unlock as results come in</span></div>}
     <RulesSummary />
@@ -203,7 +205,7 @@ function AdminQueue({ matches, results, onRecord, onSaveDraw }) {
 }
 
 function AdminResults({ matches, results, onEdit, onClear }) {
-  const completed = matches.filter(match => results[match.id]);
+  const completed = matches.filter(match => isFinal(results[match.id]));
   return <div className="screen-content"><div className="screen-title"><h1>Results</h1><p>{completed.length} of 7 matches complete</p></div>{completed.length ? <div className="row-stack">{completed.slice().reverse().map(match => <MatchRow key={match.id} match={match} results={results} action={<button type="button" className="record-button" onClick={() => onEdit(match)}>Edit result <Icon name="chevron" size={18} /></button>} />)}</div> : <div className="empty-state"><div className="empty-icon"><Icon name="matches" size={32} /></div><h2>No scores yet</h2><p>Record the first match from the queue.</p></div>}<button type="button" className="reset-button" onClick={onClear}>Reset all results</button></div>;
 }
 
@@ -264,7 +266,7 @@ export default function App() {
     let next;
     if (action === 'select') {
       const match = deriveTournament(results).matches.find(item => item.id === matchId);
-      if (!match?.home || !match?.away || results[match.id]) throw new Error('Choose an upcoming match with both teams known.');
+      if (!match?.home || !match?.away || isFinal(results[match.id])) throw new Error('Choose an upcoming or live match with both teams known.');
       next = freshTimer(match.id, match.round);
     } else next = changeTimer(timer, action);
     saveTimer(window.localStorage, next);

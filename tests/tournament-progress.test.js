@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveTournament, teamProgress } from '../src/tournament.js';
+import { deriveTournament, isFinal, teamProgress, winnerOf } from '../src/tournament.js';
 
 function record(results, id, home, away) {
   const match = deriveTournament(results).matches.find(item => item.id === id);
@@ -29,4 +29,20 @@ test('team detail follows its current knockout matchup and final status', () => 
   results = record(results, 'f1', 1, 0);
   assert.deepEqual(progress('shadow'), { kind: 'champion', round: 'final', opponentId: null });
   assert.deepEqual(progress('undisputed'), { kind: 'runner-up', round: 'final', opponentId: 'shadow' });
+});
+
+test('live goals can be corrected without advancing the bracket', () => {
+  const q1 = deriveTournament({}).matches[0];
+  let results = { q1: { home: 1, away: 0, status: 'live', homeId: q1.home, awayId: q1.away } };
+  assert.equal(isFinal(results.q1), false);
+  assert.equal(winnerOf(q1, results), null);
+  assert.deepEqual(teamProgress('shadow', deriveTournament(results).matches, results), { kind: 'live', round: 'quarter', opponentId: 'mara' });
+
+  results = { q1: { ...results.q1, home: 0, away: 0 } };
+  assert.equal(winnerOf(q1, results), null);
+  assert.equal(deriveTournament(results).matches.find(match => match.id === 's1').home, null);
+
+  results = { q1: { ...results.q1, home: 0, away: 1, status: 'final' } };
+  assert.equal(winnerOf(q1, results), 'mara');
+  assert.equal(isFinal({ home: 2, away: 1 }), true); // Earlier saved scores remain final.
 });
