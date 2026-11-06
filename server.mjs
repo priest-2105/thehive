@@ -4,11 +4,13 @@ import { existsSync, readFileSync, writeFileSync, renameSync, statSync, createRe
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deriveTournament, matchDefs, winnerOf } from './src/tournament.js';
+import { changeTimer, freshTimer, timerSnapshot } from './src/timer.js';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const envFile = resolve(root, '.env');
 if (existsSync(envFile)) process.loadEnvFile(envFile);
 const dataFile = resolve(root, 'results.json');
+const timerFile = resolve(root, 'timer.json');
 const dist = resolve(root, 'dist');
 const port = Number(process.env.PORT || 3001);
 const password = process.env.ADMIN_PASSWORD || '';
@@ -19,6 +21,9 @@ const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 let results = {};
 try { if (existsSync(dataFile)) results = deriveTournament(JSON.parse(readFileSync(dataFile, 'utf8'))).results; }
 catch (error) { console.error('Could not read results.json:', error.message); process.exit(1); }
+let timer = freshTimer();
+try { if (existsSync(timerFile)) timer = JSON.parse(readFileSync(timerFile, 'utf8')); }
+catch (error) { console.error('Could not read timer.json:', error.message); process.exit(1); }
 
 function json(response, status, body) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -31,6 +36,12 @@ function persist(next) {
   writeFileSync(temp, JSON.stringify(next, null, 2));
   renameSync(temp, dataFile);
   results = next;
+}
+function persistTimer(next) {
+  const temp = `${timerFile}.tmp`;
+  writeFileSync(temp, JSON.stringify(next, null, 2));
+  renameSync(temp, timerFile);
+  timer = next;
 }
 async function bodyOf(request) {
   let text = '';
@@ -56,7 +67,7 @@ createServer(async (request, response) => {
   try {
     const path = new URL(request.url, 'http://localhost').pathname;
     if (!path.startsWith('/api/')) return serveFile(request, response);
-    if (request.method === 'GET' && path === '/api/state') return json(response, 200, { results, authenticated: Boolean(authenticated(request)) });
+    if (request.method === 'GET' && path === '/api/state') return json(response, 200, { results, timer: timerSnapshot(timer), authenticated: Boolean(authenticated(request)) });
     if (!allowedOrigin(request)) return json(response, 403, { error: 'Request origin is not allowed.' });
     if (request.method === 'POST' && path === '/api/login') {
       if (!password) return json(response, 503, { error: 'Set ADMIN_PASSWORD on the server before signing in.' });
@@ -73,6 +84,19 @@ createServer(async (request, response) => {
       sessions.delete(cookie(request));
       response.setHeader('set-cookie', 'hive_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
       return json(response, 200, { ok: true });
+    }
+    if (request.method === 'POST' && path === '/api/timer') {
+      if (!authenticated(request)) return json(response, 401, { error: 'Admin sign-in required.' });
+      const body = await bodyOf(request);
+      if (body.action === 'select') {
+        const match = deriveTournament(results).matches.find(item => item.id === body.matchId);
+        if (!match?.home || !match?.away || results[match.id]) return json(response, 400, { error: 'Select an upcoming match with both teams known.' });
+        persistTimer(freshTimer(match.id, match.round));
+      } else {
+        try { persistTimer(changeTimer(timer, body.action)); }
+        catch (error) { return json(response, 400, { error: error.message }); }
+      }
+      return json(response, 200, { timer: timerSnapshot(timer) });
     }
     if (request.method === 'POST' && path === '/api/results') {
       if (!authenticated(request)) return json(response, 401, { error: 'Admin sign-in required.' });

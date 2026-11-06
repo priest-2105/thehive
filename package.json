@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "concurrently -k \"node server.mjs\" \"vite\"",
     "build": "vite build",
+    "test": "node --test tests/vercel-api.test.js",
     "start": "node server.mjs"
   },
   "dependencies": {

@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { deriveTournament, roundNames, teamById, teams, winnerOf } from './tournament.js';
+import { phaseDuration, phaseLabel } from './timer.js';
 
 const adminRoute = window.location.pathname.startsWith('/admin');
+const timerRoute = window.location.pathname === '/timer';
 
 async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, {
@@ -25,7 +27,8 @@ function Icon({ name, size = 22 }) {
     lock: <><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
     check: <path d="m5 12 4 4L19 6" />,
     close: <path d="M5 5 19 19M19 5 5 19" />,
-    logout: <><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5" /><path d="M14 16l4-4-4-4M18 12H8" /></>
+    logout: <><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5" /><path d="M14 16l4-4-4-4M18 12H8" /></>,
+    timer: <><circle cx="12" cy="13" r="8" /><path d="M12 9v5l3 2M9 2h6M12 2v3" /></>
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -67,6 +70,7 @@ function MatchRow({ match, results, action, compact = false }) {
 function FixturesScreen({ matches, results }) {
   const next = matches.find(match => match.home && match.away && !results[match.id]);
   return <div className="screen-content"><div className="screen-title"><h1>Fixtures</h1><p>Friday, 6 November · Kickoff 4:30 PM</p></div>
+    <a className="timer-link" href="/timer"><Icon name="timer" size={20} /><span>Open match timer</span><Icon name="chevron" size={18} /></a>
     {next && <section className="next-fixture" aria-label="Next matchup"><div className="next-fixture-head"><span>UP NEXT</span><span>{roundNames[next.round]} {next.number}</span></div><div className="next-fixture-teams"><div><TeamMark team={teamById[next.home]} large /><strong>{teamById[next.home].short}</strong></div><span>VS</span><div><TeamMark team={teamById[next.away]} large /><strong>{teamById[next.away].short}</strong></div></div></section>}
     {['quarter', 'semi', 'final'].map(round => <section className="fixture-group" key={round}><RoundHeading round={round} count={matches.filter(match => match.round === round).length} /><div className="row-stack">{matches.filter(match => match.round === round).map(match => <MatchRow key={match.id} match={match} results={results} />)}</div></section>)}
     <RulesSummary />
@@ -116,10 +120,42 @@ function BracketScreen({ matches, results, admin = false }) {
   </div>;
 }
 
-function LoginScreen({ onLogin }) {
+function TimerScreen({ timer, matches, results, admin = false, onAction }) {
+  const [now, setNow] = useState(Date.now());
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 250);
+    const refresh = () => setNow(Date.now());
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.clearInterval(interval); document.removeEventListener('visibilitychange', refresh); };
+  }, []);
+  if (!timer) return <div className="screen-content"><div className="screen-title"><h1>Match timer</h1><p>The timer service is unavailable. Restart the server to load it.</p></div></div>;
+  const match = matches.find(item => item.id === timer.matchId);
+  const remaining = timer.status === 'running' ? Math.max(0, timer.remainingMs - (now - timer.syncedAt)) : timer.remainingMs;
+  const status = timer.status === 'running' && remaining === 0 ? 'finished' : timer.status;
+  const total = phaseDuration(timer.round, timer.phase);
+  const minutes = String(Math.floor(Math.ceil(remaining / 1000) / 60)).padStart(2, '0');
+  const seconds = String(Math.ceil(remaining / 1000) % 60).padStart(2, '0');
+  const upcoming = matches.filter(item => item.home && item.away && !results[item.id]);
+  async function act(action, matchId) {
+    if (action === 'select' && timer.matchId && timer.matchId !== matchId && status !== 'ready' && !window.confirm('Switch matches and discard the current clock?')) return;
+    if (action === 'reset' && !window.confirm('Reset this match to the first half?')) return;
+    setBusy(true); setError('');
+    try { await onAction(action, matchId); } catch (cause) { setError(cause.message); } finally { setBusy(false); }
+  }
+  return <div className="screen-content timer-screen"><div className="screen-title"><h1>Match timer</h1><p>{admin ? 'Control the clock for everyone watching' : 'Live tournament clock'}</p></div>
+    {admin && <label className="timer-picker">Match<select value={timer.matchId || ''} onChange={event => event.target.value && act('select', event.target.value)} disabled={busy}><option value="">Choose a match</option>{upcoming.map(item => <option key={item.id} value={item.id}>{roundNames[item.round]} {item.number}: {teamById[item.home].short} vs {teamById[item.away].short}</option>)}</select></label>}
+    {match ? <><section className={`timer-board ${status === 'finished' ? 'is-finished' : ''}`}><div className="timer-board-top"><span>{roundNames[match.round]} {match.number}</span><strong>{status === 'finished' ? 'TIME UP' : status.toUpperCase()}</strong></div><div className="timer-matchup"><span>{teamById[match.home]?.short || 'TBD'}</span><b>vs</b><span>{teamById[match.away]?.short || 'TBD'}</span></div><div className="timer-phase">{phaseLabel[timer.phase]}</div><div className="timer-clock" role="timer" aria-label={`${minutes} minutes ${seconds} seconds remaining`}>{minutes}<span>:</span>{seconds}</div><div className="timer-track"><span style={{ transform: `scaleX(${remaining / total})` }} /></div><div className="timer-board-foot">{timer.phase === 'break' ? '2-minute break' : `${total / 60000} minutes per half`}<span>{status === 'finished' ? timer.phase === 'second' ? 'Full time' : 'Ready for next phase' : status === 'paused' ? 'Clock paused' : 'No automatic added time'}</span></div></section>
+      {admin && <div className="timer-controls">{status === 'ready' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('start')}>Start {phaseLabel[timer.phase].toLowerCase()}</button>}{status === 'running' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('pause')}>Pause clock</button>}{status === 'paused' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('resume')}>Resume clock</button>}{status === 'finished' && timer.phase !== 'second' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('next')}>Set up {timer.phase === 'first' ? 'half-time' : 'second half'}</button>}<button type="button" className="timer-reset" disabled={busy} onClick={() => act('reset')}>Reset this match</button></div>}
+      {error && <p className="form-error" role="alert">{error}</p>}<p className="timer-help">The referee decides when to blow the whistle. Each phase stops at zero and waits for the admin to continue.</p></> : <div className="timer-empty"><Icon name="timer" size={36} /><h2>No match on the clock</h2><p>{admin ? 'Choose an upcoming match to prepare its first half.' : 'The admin will choose a match when play is ready.'}</p></div>}
+    {!admin && <a className="timer-back" href="/">Back to fixtures</a>}
+  </div>;
+}
+
+function LoginScreen({ onLogin, unavailable }) {
   const [password, setPassword] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   async function submit(event) { event.preventDefault(); setBusy(true); setError(''); try { await onLogin(password); } catch (cause) { setError(cause.message); } finally { setBusy(false); } }
-  return <div className="app-shell admin-shell"><AppHeader admin /><main className="login-screen"><div className="login-icon"><Icon name="lock" size={30} /></div><h1>Admin sign in</h1><p>Use the shared password to record tournament results.</p><form onSubmit={submit}><label htmlFor="admin-password">Password</label><input id="admin-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required />{error && <p className="form-error" role="alert">{error}</p>}<button type="submit" disabled={busy} className="primary-button">{busy ? 'Signing in…' : 'Sign in'}</button></form><a href="/" className="plain-link">View public tournament</a></main></div>;
+  return <div className="app-shell admin-shell"><AppHeader admin />{unavailable && <div className="connection-banner" role="alert">Admin service unavailable. Check the deployment settings.</div>}<main className="login-screen"><div className="login-icon"><Icon name="lock" size={30} /></div><h1>Admin sign in</h1><p>Use the shared password to record tournament results.</p><form onSubmit={submit}><label htmlFor="admin-password">Password</label><input id="admin-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required />{error && <p className="form-error" role="alert">{error}</p>}<button type="submit" disabled={busy} className="primary-button">{busy ? 'Signing in…' : 'Sign in'}</button></form><a href="/" className="plain-link">View public tournament</a></main></div>;
 }
 
 function ScoreField({ label, value, onChange }) {
@@ -176,20 +212,22 @@ function AdminResults({ matches, results, onEdit, onClear }) {
 }
 
 export default function App() {
-  const [results, setResults] = useState({}), [authed, setAuthed] = useState(false), [loaded, setLoaded] = useState(false), [connectionError, setConnectionError] = useState(false);
-  const [publicTab, setPublicTab] = useState('fixtures'), [adminTab, setAdminTab] = useState('queue'), [selectedTeam, setSelectedTeam] = useState(null), [editing, setEditing] = useState(null);
+  const [results, setResults] = useState({}), [timer, setTimer] = useState(null), [authed, setAuthed] = useState(false), [loaded, setLoaded] = useState(false), [connectionError, setConnectionError] = useState(false);
+  const [publicTab, setPublicTab] = useState('fixtures'), [adminTab, setAdminTab] = useState(window.location.pathname === '/admin/timer' ? 'timer' : 'queue'), [selectedTeam, setSelectedTeam] = useState(null), [editing, setEditing] = useState(null);
   const { matches } = useMemo(() => deriveTournament(results), [results]);
-  useEffect(() => { let active = true; async function refresh() { try { const state = await api('/state'); if (active) { setResults(deriveTournament(state.results).results); setAuthed(state.authenticated); setConnectionError(false); } } catch { if (active) setConnectionError(true); } finally { if (active) setLoaded(true); } } refresh(); const timer = setInterval(refresh, 15000); return () => { active = false; clearInterval(timer); }; }, []);
+  useEffect(() => { let active = true; async function refresh() { try { const state = await api('/state'); if (active) { setResults(deriveTournament(state.results).results); setTimer(state.timer ? { ...state.timer, syncedAt: Date.now() } : null); setAuthed(state.authenticated); setConnectionError(false); } } catch { if (active) setConnectionError(true); } finally { if (active) setLoaded(true); } } refresh(); const interval = setInterval(refresh, timerRoute || adminRoute ? 3000 : 15000); return () => { active = false; clearInterval(interval); }; }, []);
   function selectPublic(tab) { setSelectedTeam(null); setPublicTab(tab); window.scrollTo(0, 0); }
-  function selectAdmin(tab) { setAdminTab(tab); window.scrollTo(0, 0); }
+  function selectAdmin(tab) { setAdminTab(tab); window.history.replaceState(null, '', tab === 'timer' ? '/admin/timer' : '/admin'); window.scrollTo(0, 0); }
   async function login(password) { await api('/login', { method: 'POST', body: JSON.stringify({ password }) }); setAuthed(true); }
   async function logout() { await api('/logout', { method: 'POST' }); setAuthed(false); }
   async function saveResult(payload) { const state = await api('/results', { method: 'POST', body: JSON.stringify(payload) }); setResults(state.results); }
   async function saveDraw(first) { const state = await api('/draw', { method: 'POST', body: JSON.stringify({ first }) }); setResults(state.results); }
+  async function controlTimer(action, matchId) { const state = await api('/timer', { method: 'POST', body: JSON.stringify({ action, matchId }) }); setTimer({ ...state.timer, syncedAt: Date.now() }); }
   async function clearResults() { if (!window.confirm('Reset all tournament results for everyone?')) return; try { const state = await api('/results', { method: 'DELETE' }); setResults(state.results); } catch (cause) { window.alert(cause.message); } }
   if (!loaded) return <div className="app-loading">Loading tournament…</div>;
-  if (adminRoute && !authed) return <LoginScreen onLogin={login} />;
-  if (adminRoute) return <div className="app-shell admin-shell"><AppHeader admin right={<button type="button" className="header-action" onClick={logout} aria-label="Sign out"><Icon name="logout" size={21} /></button>} />{connectionError && <div className="connection-banner" role="alert">Server unavailable. Scores may be out of date.</div>}<main className="app-main" id="main">{adminTab === 'queue' && <AdminQueue matches={matches} results={results} onRecord={setEditing} onSaveDraw={saveDraw} />}{adminTab === 'results' && <AdminResults matches={matches} results={results} onEdit={setEditing} onClear={clearResults} />}{adminTab === 'bracket' && <BracketScreen matches={matches} results={results} admin />}</main><BottomNav admin selected={adminTab} onSelect={selectAdmin} items={[{ id: 'queue', icon: 'fixtures', label: 'Queue' }, { id: 'results', icon: 'matches', label: 'Results' }, { id: 'bracket', icon: 'bracket', label: 'Bracket' }]} />{editing && <ScoreSheet key={editing.id} match={editing} existing={results[editing.id]} onClose={() => setEditing(null)} onSave={saveResult} />}</div>;
+  if (timerRoute) return <div className="app-shell public-shell"><AppHeader right={<span className="header-status">LIVE CLOCK</span>} />{connectionError && <div className="connection-banner" role="alert">Server unavailable. The clock may be out of date.</div>}<main className="app-main" id="main"><TimerScreen timer={timer} matches={matches} results={results} /></main></div>;
+  if (adminRoute && !authed) return <LoginScreen onLogin={login} unavailable={connectionError} />;
+  if (adminRoute) return <div className="app-shell admin-shell"><AppHeader admin right={<button type="button" className="header-action" onClick={logout} aria-label="Sign out"><Icon name="logout" size={21} /></button>} />{connectionError && <div className="connection-banner" role="alert">Server unavailable. Scores may be out of date.</div>}<main className="app-main" id="main">{adminTab === 'queue' && <AdminQueue matches={matches} results={results} onRecord={setEditing} onSaveDraw={saveDraw} />}{adminTab === 'results' && <AdminResults matches={matches} results={results} onEdit={setEditing} onClear={clearResults} />}{adminTab === 'bracket' && <BracketScreen matches={matches} results={results} admin />}{adminTab === 'timer' && <TimerScreen timer={timer} matches={matches} results={results} admin onAction={controlTimer} />}</main><BottomNav admin selected={adminTab} onSelect={selectAdmin} items={[{ id: 'queue', icon: 'fixtures', label: 'Queue' }, { id: 'results', icon: 'matches', label: 'Results' }, { id: 'bracket', icon: 'bracket', label: 'Bracket' }, { id: 'timer', icon: 'timer', label: 'Timer' }]} />{editing && <ScoreSheet key={editing.id} match={editing} existing={results[editing.id]} onClose={() => setEditing(null)} onSave={saveResult} />}</div>;
   const qf = matches.slice(0, 4); const team = selectedTeam ? teamById[selectedTeam] : null; const teamMatch = team && qf.find(match => match.home === team.id || match.away === team.id); const opponent = teamMatch && teamById[teamMatch.home === team.id ? teamMatch.away : teamMatch.home];
   return <div className="app-shell public-shell"><AppHeader right={<span className="header-status">8 TEAMS</span>} />{connectionError && <div className="connection-banner" role="alert">Server unavailable. Results may be out of date.</div>}<main className="app-main" id="main">{team ? <TeamDetail team={team} opponent={opponent} onBack={() => { setSelectedTeam(null); window.scrollTo(0, 0); }} /> : <>{publicTab === 'fixtures' && <FixturesScreen matches={matches} results={results} />}{publicTab === 'teams' && <TeamsScreen onSelect={id => { setSelectedTeam(id); window.scrollTo(0, 0); }} />}{publicTab === 'matches' && <MatchesScreen matches={matches} results={results} />}{publicTab === 'bracket' && <BracketScreen matches={matches} results={results} />}</>}</main><BottomNav selected={publicTab} onSelect={selectPublic} items={[{ id: 'fixtures', icon: 'fixtures', label: 'Fixtures' }, { id: 'teams', icon: 'teams', label: 'Teams' }, { id: 'matches', icon: 'matches', label: 'Matches' }, { id: 'bracket', icon: 'bracket', label: 'Bracket' }]} /></div>;
 }
