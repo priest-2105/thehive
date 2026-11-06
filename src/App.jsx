@@ -1,9 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import confetti from 'canvas-confetti';
 import { deriveTournament, isFinal, roundNames, teamById, teamProgress, teams, winnerOf } from './tournament.js';
 import { changeTimer, freshTimer, phaseDuration, phaseLabel, timerSnapshot } from './timer.js';
 import { readTimer, saveTimer, storageKeys } from './local-state.js';
 
 const adminRoute = window.location.pathname.startsWith('/admin') || window.location.pathname === '/timer';
+
+function celebrateChampion() {
+  const colors = ['#f4cf57', '#ffe9a3', '#d7f15b', '#6acb86', '#ffffff'];
+  confetti({ particleCount: 75, angle: 60, spread: 65, origin: { x: 0.12, y: 0.75 }, colors, shapes: ['star', 'circle'], disableForReducedMotion: true });
+  confetti({ particleCount: 75, angle: 120, spread: 65, origin: { x: 0.88, y: 0.75 }, colors, shapes: ['star', 'circle'], disableForReducedMotion: true });
+}
+
+function CelebrateButton() {
+  return <button type="button" className="celebrate-fab" onClick={celebrateChampion} aria-label="Replay champion celebration"><Icon name="celebrate" size={19} /> Celebrate</button>;
+}
 
 function Icon({ name, size = 22 }) {
   const paths = {
@@ -17,7 +28,8 @@ function Icon({ name, size = 22 }) {
     check: <path d="m5 12 4 4L19 6" />,
     close: <path d="M5 5 19 19M19 5 5 19" />,
     logout: <><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5" /><path d="M14 16l4-4-4-4M18 12H8" /></>,
-    timer: <><circle cx="12" cy="13" r="8" /><path d="M12 9v5l3 2M9 2h6M12 2v3" /></>
+    timer: <><circle cx="12" cy="13" r="8" /><path d="M12 9v5l3 2M9 2h6M12 2v3" /></>,
+    celebrate: <><path d="m12 2 1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8L12 2Z" /><path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16ZM4 16l.5 1.5L6 18l-1.5.5L4 20l-.5-1.5L2 18l1.5-.5L4 16Z" /></>
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -242,6 +254,11 @@ export default function App() {
   const [adminTab, setAdminTab] = useState(['/admin/timer', '/timer'].includes(window.location.pathname) ? 'timer' : 'queue');
   const [selectedTeam, setSelectedTeam] = useState(null), [editing, setEditing] = useState(null);
   const { matches } = useMemo(() => deriveTournament(results), [results]);
+  const championId = winnerOf(matches.find(match => match.id === 'f1'), results);
+
+  useEffect(() => {
+    if (loaded && championId) celebrateChampion();
+  }, [loaded, championId]);
 
   useEffect(() => {
     if (window.location.pathname === '/timer') window.history.replaceState(null, '', '/admin/timer');
@@ -306,10 +323,10 @@ export default function App() {
 
   if (!loaded && adminRoute) return <div className="app-loading">Loading tournament…</div>;
   if (adminRoute && !authed) return <LoginScreen onLogin={login} />;
-  if (adminRoute) return <div className="app-shell admin-shell"><AppHeader admin right={<button type="button" className="header-action" onClick={logout} aria-label="Sign out"><Icon name="logout" size={21} /></button>} />{connectionError && <div className="connection-banner" role="alert">{connectionError}</div>}<main className="app-main" id="main">{adminTab === 'queue' && <AdminQueue matches={matches} results={results} onRecord={setEditing} onSaveDraw={saveDraw} />}{adminTab === 'results' && <AdminResults matches={matches} results={results} onEdit={setEditing} onClear={clearResults} />}{adminTab === 'bracket' && <BracketScreen matches={matches} results={results} admin />}{adminTab === 'timer' && <TimerScreen timer={timer} matches={matches} results={results} admin onAction={controlTimer} />}</main><BottomNav admin selected={adminTab} onSelect={selectAdmin} items={[{ id: 'queue', icon: 'fixtures', label: 'Queue' }, { id: 'results', icon: 'matches', label: 'Results' }, { id: 'bracket', icon: 'bracket', label: 'Bracket' }, { id: 'timer', icon: 'timer', label: 'Timer' }]} />{editing && <ScoreSheet key={editing.id} match={editing} existing={results[editing.id]} onClose={() => setEditing(null)} onSave={saveResult} />}</div>;
+  if (adminRoute) return <div className={`app-shell admin-shell ${championId ? 'has-champion' : ''}`}><AppHeader admin right={<button type="button" className="header-action" onClick={logout} aria-label="Sign out"><Icon name="logout" size={21} /></button>} />{connectionError && <div className="connection-banner" role="alert">{connectionError}</div>}<main className="app-main" id="main">{adminTab === 'queue' && <AdminQueue matches={matches} results={results} onRecord={setEditing} onSaveDraw={saveDraw} />}{adminTab === 'results' && <AdminResults matches={matches} results={results} onEdit={setEditing} onClear={clearResults} />}{adminTab === 'bracket' && <BracketScreen matches={matches} results={results} admin />}{adminTab === 'timer' && <TimerScreen timer={timer} matches={matches} results={results} admin onAction={controlTimer} />}</main>{championId && <CelebrateButton />}<BottomNav admin selected={adminTab} onSelect={selectAdmin} items={[{ id: 'queue', icon: 'fixtures', label: 'Queue' }, { id: 'results', icon: 'matches', label: 'Results' }, { id: 'bracket', icon: 'bracket', label: 'Bracket' }, { id: 'timer', icon: 'timer', label: 'Timer' }]} />{editing && <ScoreSheet key={editing.id} match={editing} existing={results[editing.id]} onClose={() => setEditing(null)} onSave={saveResult} />}</div>;
   const team = selectedTeam ? teamById[selectedTeam] : null;
   const progress = team && teamProgress(team.id, matches, results);
-  return <div className="app-shell public-shell"><AppHeader right={<span className="header-status">8 TEAMS</span>} />{connectionError && <div className="connection-banner" role="alert">Live scores unavailable: {connectionError}</div>}<main className="app-main" id="main">{team ? <TeamDetail team={team} progress={progress} onBack={() => { setSelectedTeam(null); window.scrollTo(0, 0); }} /> : <>{publicTab === 'fixtures' && <FixturesScreen matches={matches} results={results} />}{publicTab === 'teams' && <TeamsScreen onSelect={id => { setSelectedTeam(id); window.scrollTo(0, 0); }} />}{publicTab === 'matches' && <MatchesScreen matches={matches} results={results} />}{publicTab === 'bracket' && <BracketScreen matches={matches} results={results} />}</>}</main><BottomNav selected={publicTab} onSelect={selectPublic} items={[{ id: 'fixtures', icon: 'fixtures', label: 'Fixtures' }, { id: 'teams', icon: 'teams', label: 'Teams' }, { id: 'matches', icon: 'matches', label: 'Matches' }, { id: 'bracket', icon: 'bracket', label: 'Bracket' }]} /></div>;
+  return <div className={`app-shell public-shell ${championId ? 'has-champion' : ''}`}><AppHeader right={<span className="header-status">8 TEAMS</span>} />{connectionError && <div className="connection-banner" role="alert">Live scores unavailable: {connectionError}</div>}<main className="app-main" id="main">{team ? <TeamDetail team={team} progress={progress} onBack={() => { setSelectedTeam(null); window.scrollTo(0, 0); }} /> : <>{publicTab === 'fixtures' && <FixturesScreen matches={matches} results={results} />}{publicTab === 'teams' && <TeamsScreen onSelect={id => { setSelectedTeam(id); window.scrollTo(0, 0); }} />}{publicTab === 'matches' && <MatchesScreen matches={matches} results={results} />}{publicTab === 'bracket' && <BracketScreen matches={matches} results={results} />}</>}</main>{championId && <CelebrateButton />}<BottomNav selected={publicTab} onSelect={selectPublic} items={[{ id: 'fixtures', icon: 'fixtures', label: 'Fixtures' }, { id: 'teams', icon: 'teams', label: 'Teams' }, { id: 'matches', icon: 'matches', label: 'Matches' }, { id: 'bracket', icon: 'bracket', label: 'Bracket' }]} /></div>;
 }
 
 async function api(path, options = {}) {
