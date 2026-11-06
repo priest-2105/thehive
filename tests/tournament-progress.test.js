@@ -46,3 +46,11 @@ test('live goals can be corrected without advancing the bracket', () => {
   assert.equal(winnerOf(q1, results), 'mara');
   assert.equal(isFinal({ home: 2, away: 1 }), true); // Earlier saved scores remain final.
 });
+
+test('penalty goal totals decide a tied full-time match', () => {
+  const q1 = deriveTournament({}).matches[0];
+  const results = { q1: { home: 1, away: 1, status: 'final', penaltyHome: 2, penaltyAway: 1, penaltyWinner: 'away', homeId: q1.home, awayId: q1.away } };
+  assert.equal(winnerOf(q1, results), 'shadow');
+  assert.equal(winnerOf(q1, { q1: { ...results.q1, penaltyHome: 1, penaltyAway: 2 } }), 'mara');
+  assert.equal(winnerOf(q1, { q1: { home: 1, away: 1, penaltyWinner: 'away' } }), 'mara');
+});

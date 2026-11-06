@@ -29,6 +29,9 @@ export function winnerOf(match, results) {
   if (!isFinal(result) || !match.home || !match.away) return null;
   if (result.home > result.away) return match.home;
   if (result.away > result.home) return match.away;
+  if (Number.isInteger(result.penaltyHome) && Number.isInteger(result.penaltyAway) && result.penaltyHome !== result.penaltyAway) {
+    return result.penaltyHome > result.penaltyAway ? match.home : match.away;
+  }
   return result.penaltyWinner === 'home' ? match.home : result.penaltyWinner === 'away' ? match.away : null;
 }
 

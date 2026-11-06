@@ -40,6 +40,11 @@ function RoundHeading({ round, count }) {
   return <div className="round-heading"><h3>{round === 'final' ? 'Final' : `${roundNames[round]}s`}</h3><span>{count} {count === 1 ? 'MATCH' : 'MATCHES'}</span></div>;
 }
 
+function penaltyLabel(result) {
+  return Number.isInteger(result?.penaltyHome) && Number.isInteger(result?.penaltyAway)
+    ? `PENS ${result.penaltyHome}–${result.penaltyAway}` : 'PENS';
+}
+
 function MatchRow({ match, results, action, compact = false }) {
   const result = results[match.id];
   const winner = winnerOf(match, results);
@@ -49,7 +54,7 @@ function MatchRow({ match, results, action, compact = false }) {
     <div className="match-row-top"><span>{roundNames[match.round]} · {String(match.number).padStart(2, '0')}</span><span className={`match-state ${isFinal(result) ? 'is-final' : result ? 'is-live' : ready ? 'is-ready' : ''}`}>{isFinal(result) ? 'FULL TIME' : result ? 'LIVE' : ready ? 'UPCOMING' : 'TBD'}</span></div>
     <div className="match-row-main">
       <div className={`match-side ${winner === match.home && winner ? 'is-winner' : ''}`}>{home && <TeamMark team={home} />}<span>{home?.short || 'Winner TBD'}</span></div>
-      <div className="match-result">{result ? <><strong>{result.home} – {result.away}</strong>{isFinal(result) && result.home === result.away && <small>PEN</small>}</> : <span>vs</span>}</div>
+      <div className="match-result">{result ? <><strong>{result.home} – {result.away}</strong>{isFinal(result) && result.home === result.away && <small>{penaltyLabel(result)}</small>}</> : <span>vs</span>}</div>
       <div className={`match-side away ${winner === match.away && winner ? 'is-winner' : ''}`}><span>{away?.short || 'Winner TBD'}</span>{away && <TeamMark team={away} />}</div>
     </div>
     {action && <div className="match-row-action">{action}</div>}
@@ -96,7 +101,7 @@ function MatchesScreen({ matches, results }) {
 
 function BracketCard({ match, results }) {
   const result = results[match.id], winner = winnerOf(match, results);
-  return <div className="bracket-card"><div className="bracket-card-label">{roundNames[match.round]} {match.number}</div>{['home', 'away'].map(side => <div className={`bracket-team ${winner === match[side] && winner ? 'is-winner' : ''}`} key={side}><span>{match[side] ? teamById[match[side]].short : 'Winner TBD'}</span><strong>{result ? result[side] : '–'}</strong></div>)}</div>;
+  return <div className="bracket-card"><div className="bracket-card-label">{roundNames[match.round]} {match.number}</div>{['home', 'away'].map(side => <div className={`bracket-team ${winner === match[side] && winner ? 'is-winner' : ''}`} key={side}><span>{match[side] ? teamById[match[side]].short : 'Winner TBD'}</span><strong>{result ? result[side] : '–'}</strong></div>)}{isFinal(result) && result.home === result.away && <small className="bracket-penalties">{penaltyLabel(result)}</small>}</div>;
 }
 
 function BracketScreen({ matches, results, admin = false }) {
@@ -116,6 +121,12 @@ function BracketScreen({ matches, results, admin = false }) {
 function TimerScreen({ timer, matches, results, admin = false, onAction }) {
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [setMinutes, setSetMinutes] = useState(() => String(Math.floor(timer.remainingMs / 60000)));
+  const [setSeconds, setSetSeconds] = useState(() => String(Math.ceil(timer.remainingMs / 1000) % 60));
+  useEffect(() => {
+    setSetMinutes(String(Math.floor(timer.remainingMs / 60000)));
+    setSetSeconds(String(Math.ceil(timer.remainingMs / 1000) % 60));
+  }, [timer.matchId, timer.phase, timer.remainingMs]);
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 250);
     const refresh = () => setNow(Date.now());
@@ -132,13 +143,20 @@ function TimerScreen({ timer, matches, results, admin = false, onAction }) {
   async function act(action, matchId) {
     if (action === 'select' && timer.matchId && timer.matchId !== matchId && status !== 'ready' && !window.confirm('Switch matches and discard the current clock?')) return;
     if (action === 'reset' && !window.confirm('Reset this match to the first half?')) return;
+    if (status === 'running' && ['jump', 'seek'].includes(action) && !window.confirm('Stop the current clock and change its time?')) return;
     setBusy(true); setError('');
     try { await onAction(action, matchId); } catch (cause) { setError(cause.message); } finally { setBusy(false); }
+  }
+  function setTime(event) {
+    event.preventDefault();
+    const mins = Number(setMinutes), secs = Number(setSeconds);
+    if (setMinutes === '' || setSeconds === '' || !Number.isInteger(mins) || !Number.isInteger(secs) || mins < 0 || secs < 0 || secs > 59 || (mins * 60 + secs) * 1000 > total) return setError(`Enter a time from 0:00 to ${total / 60000}:00.`);
+    act('seek', (mins * 60 + secs) * 1000);
   }
   return <div className="screen-content timer-screen"><div className="screen-title"><h1>Match timer</h1><p>Clock on this browser</p></div>
     {admin && <label className="timer-picker">Match<select value={timer.matchId || ''} onChange={event => event.target.value && act('select', event.target.value)} disabled={busy}><option value="">Choose a match</option>{upcoming.map(item => <option key={item.id} value={item.id}>{roundNames[item.round]} {item.number}: {teamById[item.home].short} vs {teamById[item.away].short}</option>)}</select></label>}
     {match ? <><section className={`timer-board ${status === 'finished' ? 'is-finished' : ''}`}><div className="timer-board-top"><span>{roundNames[match.round]} {match.number}</span><strong>{status === 'finished' ? 'TIME UP' : status.toUpperCase()}</strong></div><div className="timer-matchup"><span>{teamById[match.home]?.short || 'TBD'}</span><b>vs</b><span>{teamById[match.away]?.short || 'TBD'}</span></div><div className="timer-phase">{phaseLabel[timer.phase]}</div><div className="timer-clock" role="timer" aria-label={`${minutes} minutes ${seconds} seconds remaining`}>{minutes}<span>:</span>{seconds}</div><div className="timer-track"><span style={{ transform: `scaleX(${remaining / total})` }} /></div><div className="timer-board-foot">{timer.phase === 'break' ? '2-minute break' : `${total / 60000} minutes per half`}<span>{status === 'finished' ? timer.phase === 'second' ? 'Full time' : 'Ready for next phase' : status === 'paused' ? 'Clock paused' : 'No automatic added time'}</span></div></section>
-      {admin && <div className="timer-controls">{status === 'ready' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('start')}>Start {phaseLabel[timer.phase].toLowerCase()}</button>}{status === 'running' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('pause')}>Pause clock</button>}{status === 'paused' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('resume')}>Resume clock</button>}{status === 'finished' && timer.phase !== 'second' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('next')}>Set up {timer.phase === 'first' ? 'half-time' : 'second half'}</button>}<button type="button" className="timer-reset" disabled={busy} onClick={() => act('reset')}>Reset this match</button></div>}
+      {admin && <><div className="timer-controls">{status === 'ready' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('start')}>Start {phaseLabel[timer.phase].toLowerCase()}</button>}{status === 'running' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('pause')}>Pause clock</button>}{status === 'paused' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('resume')}>Resume clock</button>}{status === 'finished' && timer.phase !== 'second' && <button type="button" className="timer-primary" disabled={busy} onClick={() => act('next')}>Set up {timer.phase === 'first' ? 'half-time' : 'second half'}</button>}<button type="button" className="timer-reset" disabled={busy} onClick={() => act('reset')}>Reset this match</button></div><section className="timer-adjust"><h2>Jump to a phase</h2><div className="timer-phase-buttons">{['first', 'break', 'second'].map(phase => <button type="button" key={phase} aria-pressed={timer.phase === phase} disabled={busy} onClick={() => act('jump', phase)}>{phaseLabel[phase]}</button>)}</div><form onSubmit={setTime}><label>Set time left</label><div className="timer-time-inputs"><input type="number" inputMode="numeric" min="0" max={total / 60000} aria-label="Minutes left" value={setMinutes} onChange={event => setSetMinutes(event.target.value)} /><span>:</span><input type="number" inputMode="numeric" min="0" max="59" aria-label="Seconds left" value={setSeconds} onChange={event => setSetSeconds(event.target.value)} /><button type="submit" disabled={busy}>Apply</button></div></form></section></>}
       {error && <p className="form-error" role="alert">{error}</p>}<p className="timer-help">The referee decides when to blow the whistle. Each phase stops at zero and waits for the admin to continue.</p></> : <div className="timer-empty"><Icon name="timer" size={36} /><h2>No match on the clock</h2><p>{admin ? 'Choose an upcoming match to prepare its first half.' : 'The admin will choose a match when play is ready.'}</p></div>}
     {!admin && <a className="timer-back" href="/">Back to fixtures</a>}
   </div>;
@@ -161,19 +179,21 @@ function ScoreField({ label, value, onChange }) {
 
 function ScoreSheet({ match, existing, onClose, onSave }) {
   const [home, setHome] = useState(existing?.home ?? ''), [away, setAway] = useState(existing?.away ?? '');
-  const [penaltyWinner, setPenaltyWinner] = useState(existing?.penaltyWinner ?? ''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const [penaltyHome, setPenaltyHome] = useState(existing?.penaltyHome ?? ''), [penaltyAway, setPenaltyAway] = useState(existing?.penaltyAway ?? '');
+  const [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const tied = home !== '' && away !== '' && Number(home) === Number(away);
   useEffect(() => { const onKey = event => { if (event.key === 'Escape') onClose(); }; document.addEventListener('keydown', onKey); return () => document.removeEventListener('keydown', onKey); }, [onClose]);
   async function submit(event) {
     event.preventDefault(); const h = Number(home), a = Number(away);
     const status = event.nativeEvent.submitter?.value === 'final' ? 'final' : 'live';
     if (home === '' || away === '' || !Number.isInteger(h) || !Number.isInteger(a) || h < 0 || a < 0 || h > 99 || a > 99) return setError('Enter a score from 0 to 99 for each team.');
-    if (status === 'final' && tied && !penaltyWinner) return setError('Select the team that won on penalties before marking full time.');
+    const ph = Number(penaltyHome), pa = Number(penaltyAway);
+    if (status === 'final' && tied && (penaltyHome === '' || penaltyAway === '' || ![ph, pa].every(score => Number.isInteger(score) && score >= 0 && score <= 99) || ph === pa)) return setError('Enter different penalty goal totals for both teams.');
     setBusy(true); setError('');
-    try { await onSave({ matchId: match.id, home: h, away: a, status, penaltyWinner: status === 'final' && tied ? penaltyWinner : null }); onClose(); }
+    try { await onSave({ matchId: match.id, home: h, away: a, status, penaltyHome: status === 'final' && tied ? ph : null, penaltyAway: status === 'final' && tied ? pa : null }); onClose(); }
     catch (cause) { setError(cause.message); setBusy(false); }
   }
-  return <div className="sheet-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="score-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><div className="sheet-grip" /><div className="sheet-heading"><div><small>{roundNames[match.round].toUpperCase()} · MATCH {String(match.number).padStart(2, '0')}</small><h2 id="sheet-title">{isFinal(existing) ? 'Edit final score' : existing ? 'Update live score' : 'Start scoring'}</h2></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" size={22} /></button></div><form onSubmit={submit}><div className="sheet-scores"><ScoreField label={teamById[match.home].short} value={home} onChange={setHome} /><span className="sheet-vs">:</span><ScoreField label={teamById[match.away].short} value={away} onChange={setAway} /></div><p className="sheet-note">Use + for a goal or − to cancel one. Save as many times as needed during play.</p>{tied && <fieldset className="penalty-choice"><legend>Penalty winner, if marking full time</legend><p className="penalty-hint">Two kicks each, then sudden death if still level.</p>{['home', 'away'].map(side => <label key={side}><input type="radio" name="penaltyWinner" checked={penaltyWinner === side} onChange={() => setPenaltyWinner(side)} /><span>{teamById[match[side]].short}</span></label>)}</fieldset>}{isFinal(existing) && <p className="sheet-note">Reopening or changing the winner may clear later results that depend on this match.</p>}{error && <p className="form-error" role="alert">{error}</p>}<div className="score-actions"><button type="submit" value="live" className="secondary-button" disabled={busy}>{isFinal(existing) ? 'Reopen as live' : existing ? 'Update live score' : 'Save live score'}</button><button type="submit" value="final" className="primary-button" disabled={busy}>{busy ? 'Saving…' : isFinal(existing) ? 'Save final correction' : 'Mark full time'}</button></div></form></section></div>;
+  return <div className="sheet-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="score-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"><div className="sheet-grip" /><div className="sheet-heading"><div><small>{roundNames[match.round].toUpperCase()} · MATCH {String(match.number).padStart(2, '0')}</small><h2 id="sheet-title">{isFinal(existing) ? 'Edit final score' : existing ? 'Update live score' : 'Start scoring'}</h2></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" size={22} /></button></div><form onSubmit={submit}><div className="sheet-scores"><ScoreField label={teamById[match.home].short} value={home} onChange={setHome} /><span className="sheet-vs">:</span><ScoreField label={teamById[match.away].short} value={away} onChange={setAway} /></div><p className="sheet-note">Use + for a goal or − to cancel one. Save as many times as needed during play.</p>{tied && <fieldset className="penalty-choice"><legend>Penalty shootout, if marking full time</legend><p className="penalty-hint">Enter the goals scored by each team in the shootout.</p><div className="penalty-scores"><label><span>{teamById[match.home].short}</span><input type="number" min="0" max="99" inputMode="numeric" placeholder="0" aria-label={`${teamById[match.home].short} penalty goals`} value={penaltyHome} onChange={event => setPenaltyHome(event.target.value)} /></label><label><span>{teamById[match.away].short}</span><input type="number" min="0" max="99" inputMode="numeric" placeholder="0" aria-label={`${teamById[match.away].short} penalty goals`} value={penaltyAway} onChange={event => setPenaltyAway(event.target.value)} /></label></div></fieldset>}{isFinal(existing) && <p className="sheet-note">Reopening or changing the winner may clear later results that depend on this match.</p>}{error && <p className="form-error" role="alert">{error}</p>}<div className="score-actions"><button type="submit" value="live" className="secondary-button" disabled={busy}>{isFinal(existing) ? 'Reopen as live' : existing ? 'Update live score' : 'Save live score'}</button><button type="submit" value="final" className="primary-button" disabled={busy}>{busy ? 'Saving…' : isFinal(existing) ? 'Save final correction' : 'Mark full time'}</button></div></form></section></div>;
 }
 
 function AdminDraw({ matches, results, onSave }) {
@@ -268,7 +288,7 @@ export default function App() {
       const match = deriveTournament(results).matches.find(item => item.id === matchId);
       if (!match?.home || !match?.away || isFinal(results[match.id])) throw new Error('Choose an upcoming or live match with both teams known.');
       next = freshTimer(match.id, match.round);
-    } else next = changeTimer(timer, action);
+    } else next = changeTimer(timer, action, Date.now(), matchId);
     saveTimer(window.localStorage, next);
     setTimer({ ...timerSnapshot(next), syncedAt: Date.now() });
   }

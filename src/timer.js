@@ -14,8 +14,14 @@ export function timerSnapshot(timer, now = Date.now()) {
   return { ...timer, remainingMs, status: timer.status === 'running' && remainingMs === 0 ? 'finished' : timer.status };
 }
 
-export function changeTimer(timer, action, now = Date.now()) {
+export function changeTimer(timer, action, now = Date.now(), value) {
   const current = timerSnapshot(timer, now);
+  if (action === 'jump' && current.matchId && ['first', 'break', 'second'].includes(value)) {
+    return { ...current, phase: value, status: 'ready', remainingMs: phaseDuration(current.round, value), deadline: null };
+  }
+  if (action === 'seek' && current.matchId && Number.isInteger(value) && value >= 0 && value <= phaseDuration(current.round, current.phase)) {
+    return { ...current, status: value === 0 ? 'finished' : current.status === 'ready' ? 'ready' : 'paused', remainingMs: value, deadline: null };
+  }
   if (action === 'start' && current.matchId && current.status === 'ready') return { ...current, status: 'running', deadline: now + current.remainingMs };
   if (action === 'pause' && current.status === 'running') return { ...current, status: 'paused', deadline: null };
   if (action === 'resume' && current.status === 'paused') return { ...current, status: 'running', deadline: now + current.remainingMs };

@@ -24,6 +24,7 @@ Use the Vite preset and `dist` output directory. The Blob Hobby free allowance h
 Results and semi-final pairings live in one private Vercel Blob and are shared across devices. A Vercel Function checks the password and issues an HTTP-only admin cookie. The match timer remains in the admin browser's local storage and is not shared across devices. Clearing that browser's data resets its timer but does not erase scores.
 
 In the admin Queue, save a **live score** after each goal or correction; the match stays editable there. Choose **Mark full time** only when play ends. A tied final score requires a penalty winner. Teams advance in the bracket only after full time. Older saved results without a status remain final.
+For a tied full-time match, enter each team's penalty goals; the higher tally determines the winner and appears beneath the public score. Older results that recorded only a penalty winner remain readable until edited. The admin Timer can jump to either half or half-time and set the exact time left in the current phase.
 
 ## Source of tournament facts
 
